@@ -7,6 +7,7 @@ import wandb
 from cover_agent.CustomLogger import CustomLogger
 from cover_agent.ReportGenerator import ReportGenerator
 from cover_agent.UnitTestGenerator import UnitTestGenerator
+from cover_agent.UnitTestValidator import UnitTestValidator
 from cover_agent.UnitTestDB import UnitTestDB
 
 class CoverAgent:
@@ -27,6 +28,22 @@ class CoverAgent:
         self._duplicate_test_file()
 
         self.test_gen = UnitTestGenerator(
+            source_file_path=args.source_file_path,
+            test_file_path=args.test_file_output_path,
+            project_root=args.project_root,
+            code_coverage_report_path=args.code_coverage_report_path,
+            test_command=args.test_command,
+            test_command_dir=args.test_command_dir,
+            included_files=args.included_files,
+            coverage_type=args.coverage_type,
+            desired_coverage=args.desired_coverage,
+            additional_instructions=args.additional_instructions,
+            llm_model=args.model,
+            api_base=args.api_base,
+            use_report_coverage_feature_flag=args.use_report_coverage_feature_flag,
+        )
+
+        self.test_validator = UnitTestValidator(
             source_file_path=args.source_file_path,
             test_file_path=args.test_file_output_path,
             project_root=args.project_root,
@@ -123,7 +140,7 @@ class CoverAgent:
         test_results_list = []
 
         # Run initial test suite analysis
-        self.test_gen.get_coverage_and_build_prompt()
+        self.test_validator.get_coverage_and_build_prompt()
         self.test_gen.initial_test_suite_analysis()
 
         # Loop until desired coverage is reached or maximum iterations are met
