@@ -27,7 +27,6 @@ class UnitTestGenerator:
         test_command_dir: str = os.getcwd(),
         included_files: list = None,
         coverage_type="cobertura",
-        desired_coverage: int = 90,  # Default to 90% coverage if not specified
         additional_instructions: str = "",
         use_report_coverage_feature_flag: bool = False,
         project_root: str = "",
@@ -66,7 +65,6 @@ class UnitTestGenerator:
         self.test_command_dir = test_command_dir
         self.included_files = self.get_included_files(included_files)
         self.coverage_type = coverage_type
-        self.desired_coverage = desired_coverage
         self.additional_instructions = additional_instructions
         self.language = self.get_code_language(source_file_path)
         self.use_report_coverage_feature_flag = use_report_coverage_feature_flag
@@ -304,7 +302,7 @@ class UnitTestGenerator:
             self.logger.error(f"Error during initial test suite analysis: {e}")
             raise Exception("Error during initial test suite analysis")
 
-    def generate_tests(self):
+    def generate_tests(self, failed_test_runs):
         """
         Generate tests using the AI model based on the constructed prompt.
 
@@ -322,7 +320,7 @@ class UnitTestGenerator:
         Raises:
             Exception: If there is an error during test generation, such as a parsing error while processing the AI model response.
         """
-        self.prompt = self.build_prompt()
+        self.prompt = self.build_prompt(failed_test_runs)
         response, prompt_token_count, response_token_count =  self.ai_caller.call_model(prompt=self.prompt)
 
         self.total_input_token_count += prompt_token_count
@@ -360,7 +358,6 @@ class UnitTestGenerator:
             "test_command_dir": self.test_command_dir,
             "included_files": self.included_files,
             "coverage_type": self.coverage_type,
-            "desired_coverage": self.desired_coverage,
             "additional_instructions": self.additional_instructions,
         }
 

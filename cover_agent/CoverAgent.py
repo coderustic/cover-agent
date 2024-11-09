@@ -36,7 +36,6 @@ class CoverAgent:
             test_command_dir=args.test_command_dir,
             included_files=args.included_files,
             coverage_type=args.coverage_type,
-            desired_coverage=args.desired_coverage,
             additional_instructions=args.additional_instructions,
             llm_model=args.model,
             api_base=args.api_base,
@@ -146,17 +145,17 @@ class CoverAgent:
 
         # Loop until desired coverage is reached or maximum iterations are met
         while (
-            self.test_gen.current_coverage < (self.test_gen.desired_coverage / 100)
+            self.test_validator.current_coverage < (self.test_validator.desired_coverage / 100)
             and iteration_count < self.args.max_iterations
         ):
             # Log the current coverage
             self.logger.info(
-                f"Current Coverage: {round(self.test_gen.current_coverage * 100, 2)}%"
+                f"Current Coverage: {round(self.test_validator.current_coverage * 100, 2)}%"
             )
-            self.logger.info(f"Desired Coverage: {self.test_gen.desired_coverage}%")
+            self.logger.info(f"Desired Coverage: {self.test_validator.desired_coverage}%")
 
             # Generate new tests
-            generated_tests_dict = self.test_gen.generate_tests()
+            generated_tests_dict = self.test_gen.generate_tests(failed_test_runs)
 
             # Loop through each new test and validate it
             for generated_test in generated_tests_dict.get("new_tests", []):
@@ -173,17 +172,17 @@ class CoverAgent:
             iteration_count += 1
 
             # Check if the desired coverage has been reached
-            if self.test_gen.current_coverage < (self.test_gen.desired_coverage / 100):
+            if self.test_validator.current_coverage < (self.test_validator.desired_coverage / 100):
                 # Run the coverage tool again if the desired coverage hasn't been reached
-                self.test_gen.run_coverage()
+                self.test_validator.run_coverage()
 
         # Log the final coverage
-        if self.test_gen.current_coverage >= (self.test_gen.desired_coverage / 100):
+        if self.test_validator.current_coverage >= (self.test_validator.desired_coverage / 100):
             self.logger.info(
-                f"Reached above target coverage of {self.test_gen.desired_coverage}% (Current Coverage: {round(self.test_gen.current_coverage * 100, 2)}%) in {iteration_count} iterations."
+                f"Reached above target coverage of {self.test_validator.desired_coverage}% (Current Coverage: {round(self.test_validator.current_coverage * 100, 2)}%) in {iteration_count} iterations."
             )
         elif iteration_count == self.args.max_iterations:
-            failure_message = f"Reached maximum iteration limit without achieving desired coverage. Current Coverage: {round(self.test_gen.current_coverage * 100, 2)}%"
+            failure_message = f"Reached maximum iteration limit without achieving desired coverage. Current Coverage: {round(self.test_validator.current_coverage * 100, 2)}%"
             if self.args.strict_coverage:
                 # User requested strict coverage (similar to "--cov-fail-under in pytest-cov"). Fail with exist code 2.
                 self.logger.error(failure_message)
@@ -193,10 +192,10 @@ class CoverAgent:
 
         # Provide metrics on total token usage
         self.logger.info(
-            f"Total number of input tokens used for LLM model {self.test_gen.ai_caller.model}: {self.test_gen.total_input_token_count}"
+            f"Total number of input tokens used for LLM model {self.test_gen.ai_caller.model}: {self.test_gen.total_input_token_count + self.test_validator.total_input_token_count}"
         )
         self.logger.info(
-            f"Total number of output tokens used for LLM model {self.test_gen.ai_caller.model}: {self.test_gen.total_output_token_count}"
+            f"Total number of output tokens used for LLM model {self.test_gen.ai_caller.model}: {self.test_gen.total_output_token_count + self.test_validator.total_output_token_count}"
         )
 
         # Generate a report

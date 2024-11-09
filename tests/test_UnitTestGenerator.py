@@ -71,9 +71,9 @@ class TestUnitTestGenerator:
                 test_command="pytest",
                 llm_model="gpt-3"
             )
-            generator.build_prompt = lambda: "Test prompt"
+            generator.build_prompt = lambda x: "Test prompt"
             with patch.object(generator.ai_caller, 'call_model', return_value=("This is not YAML", 10, 10)):
-                result = generator.generate_tests()
+                result = generator.generate_tests([])
                 
                 # The eventual call to try_fix_yaml() will end up spitting out the same string but deeming is "YAML."
                 # While this is not a valid YAML, the function will return the original string (for better or for worse).
