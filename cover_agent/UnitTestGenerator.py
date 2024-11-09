@@ -54,8 +54,6 @@ class UnitTestGenerator:
             None
         """
         # Class variables
-        self.relevant_line_number_to_insert_imports_after = None
-        self.relevant_line_number_to_insert_tests_after = None
         self.test_headers_indentation = None
         self.project_root = project_root
         self.source_file_path = source_file_path
@@ -198,10 +196,6 @@ class UnitTestGenerator:
             except Exception as e:
                 self.logger.error(f"Error processing failed test runs: {e}")
                 failed_test_runs_value = ""
-        # no need to reset anymore as it is passed in.
-        # self.failed_test_runs = (
-        #    []
-        # )  # Reset the failed test runs. we don't want a list which grows indefinitely, and will take all the prompt tokens
 
         # Call PromptBuilder to build the prompt
         self.prompt_builder = PromptBuilder(
@@ -217,90 +211,6 @@ class UnitTestGenerator:
         )
 
         return self.prompt_builder.build_prompt()
-
-    def initial_test_suite_analysis(self):
-        """
-        Perform the initial analysis of the test suite structure.
-
-        This method iterates through a series of attempts to analyze the test suite structure by interacting with the AI model.
-        It constructs prompts based on specific files and calls to the AI model to gather information such as test headers indentation,
-        relevant line numbers for inserting new tests, and relevant line numbers for inserting imports.
-        The method handles multiple attempts to gather this information and raises exceptions if the analysis fails.
-
-        Raises:
-            Exception: If the test headers indentation cannot be analyzed successfully.
-            Exception: If the relevant line number to insert new tests cannot be determined.
-
-        Returns:
-            None
-        """
-        try:
-            test_headers_indentation = None
-            allowed_attempts = 3
-            counter_attempts = 0
-            while (
-                test_headers_indentation is None and counter_attempts < allowed_attempts
-            ):
-                prompt_headers_indentation = self.prompt_builder.build_prompt_custom(
-                    file="analyze_suite_test_headers_indentation"
-                )
-                response, prompt_token_count, response_token_count = (
-                    self.ai_caller.call_model(prompt=prompt_headers_indentation)
-                )
-                self.ai_caller.model = self.llm_model
-                self.total_input_token_count += prompt_token_count
-                self.total_output_token_count += response_token_count
-                tests_dict = load_yaml(response)
-                test_headers_indentation = tests_dict.get(
-                    "test_headers_indentation", None
-                )
-                counter_attempts += 1
-
-            if test_headers_indentation is None:
-                raise Exception("Failed to analyze the test headers indentation")
-
-            relevant_line_number_to_insert_tests_after = None
-            relevant_line_number_to_insert_imports_after = None
-            allowed_attempts = 3
-            counter_attempts = 0
-            while (
-                not relevant_line_number_to_insert_tests_after
-                and counter_attempts < allowed_attempts
-            ):
-                prompt_test_insert_line = self.prompt_builder.build_prompt_custom(
-                    file="analyze_suite_test_insert_line"
-                )
-                response, prompt_token_count, response_token_count = (
-                    self.ai_caller.call_model(prompt=prompt_test_insert_line)
-                )
-                self.ai_caller.model = self.llm_model
-                self.total_input_token_count += prompt_token_count
-                self.total_output_token_count += response_token_count
-                tests_dict = load_yaml(response)
-                relevant_line_number_to_insert_tests_after = tests_dict.get(
-                    "relevant_line_number_to_insert_tests_after", None
-                )
-                relevant_line_number_to_insert_imports_after = tests_dict.get(
-                    "relevant_line_number_to_insert_imports_after", None
-                )
-                self.testing_framework = tests_dict.get("testing_framework", "Unknown")
-                counter_attempts += 1
-
-            if not relevant_line_number_to_insert_tests_after:
-                raise Exception(
-                    "Failed to analyze the relevant line number to insert new tests"
-                )
-
-            self.test_headers_indentation = test_headers_indentation
-            self.relevant_line_number_to_insert_tests_after = (
-                relevant_line_number_to_insert_tests_after
-            )
-            self.relevant_line_number_to_insert_imports_after = (
-                relevant_line_number_to_insert_imports_after
-            )
-        except Exception as e:
-            self.logger.error(f"Error during initial test suite analysis: {e}")
-            raise Exception("Error during initial test suite analysis")
 
     def generate_tests(self, failed_test_runs):
         """

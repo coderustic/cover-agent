@@ -79,36 +79,4 @@ class TestUnitTestGenerator:
                 # While this is not a valid YAML, the function will return the original string (for better or for worse).
                 assert result =="This is not YAML"
 
-    def test_initial_test_suite_analysis_with_prompt_builder(self):
-        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_source_file:
-            generator = UnitTestGenerator(
-                source_file_path=temp_source_file.name,
-                test_file_path="test_test.py",
-                code_coverage_report_path="coverage.xml",
-                test_command="pytest",
-                llm_model="gpt-3"
-            )
-            
-            # Mock the prompt builder
-            mock_prompt_builder = MagicMock()
-            generator.prompt_builder = mock_prompt_builder
-            mock_prompt_builder.build_prompt_custom.side_effect = [
-                "test_headers_indentation: 4",
-                "relevant_line_number_to_insert_tests_after: 100\nrelevant_line_number_to_insert_imports_after: 10\ntesting_framework: pytest"
-            ]
-            
-            # Mock the AI caller responses
-            with patch.object(generator.ai_caller, 'call_model') as mock_call:
-                mock_call.side_effect = [
-                    ("test_headers_indentation: 4", 10, 10),
-                    ("relevant_line_number_to_insert_tests_after: 100\nrelevant_line_number_to_insert_imports_after: 10\ntesting_framework: pytest", 10, 10)
-                ]
-                
-                generator.initial_test_suite_analysis()
-                
-                assert generator.test_headers_indentation == 4
-                assert generator.relevant_line_number_to_insert_tests_after == 100
-                assert generator.relevant_line_number_to_insert_imports_after == 10
-                assert generator.testing_framework == "pytest"
-
                 

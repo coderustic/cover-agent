@@ -139,11 +139,9 @@ class CoverAgent:
         test_results_list = []
 
         # Run initial test suite analysis
+        self.test_validator.initial_test_suite_analysis()
         failed_test_runs = self.test_validator.get_coverage()
         self.test_gen.build_prompt(failed_test_runs)
-        self.test_gen.initial_test_suite_analysis()
-        self.test_validator.relevant_line_number_to_insert_imports_after = self.test_gen.relevant_line_number_to_insert_imports_after
-        self.test_validator.relevant_line_number_to_insert_tests_after = self.test_gen.relevant_line_number_to_insert_tests_after
 
         # Loop until desired coverage is reached or maximum iterations are met
         while (
