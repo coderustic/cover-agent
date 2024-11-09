@@ -142,6 +142,8 @@ class CoverAgent:
         failed_test_runs = self.test_validator.get_coverage()
         self.test_gen.build_prompt(failed_test_runs)
         self.test_gen.initial_test_suite_analysis()
+        self.test_validator.relevant_line_number_to_insert_imports_after = self.test_gen.relevant_line_number_to_insert_imports_after
+        self.test_validator.relevant_line_number_to_insert_tests_after = self.test_gen.relevant_line_number_to_insert_tests_after
 
         # Loop until desired coverage is reached or maximum iterations are met
         while (
@@ -163,6 +165,7 @@ class CoverAgent:
                 test_result = self.test_validator.validate_test(
                     generated_test, self.args.run_tests_multiple_times
                 )
+                test_result["prompt"] = self.test_gen.prompt # get the prompt used to generate the test so that it is stored in the database
                 test_results_list.append(test_result)
 
                 # Insert the test result into the database
