@@ -15,7 +15,7 @@ from cover_agent.settings.config_loader import get_settings
 from cover_agent.utils import load_yaml
 
 
-class UnitTestGenerator:
+class UnitTestValidator:
     def __init__(
         self,
         source_file_path: str,
@@ -33,7 +33,7 @@ class UnitTestGenerator:
         project_root: str = "",
     ):
         """
-        Initialize the UnitTestGenerator class with the provided parameters.
+        Initialize the UnitTestValidator class with the provided parameters.
 
         Parameters:
             source_file_path (str): The path to the source file being tested.
@@ -91,7 +91,7 @@ class UnitTestGenerator:
         with open(self.source_file_path, "r") as f:
             self.source_code = f.read()
 
-    def get_coverage_and_build_prompt(self):
+    def get_coverage(self):
         """
         Run code coverage and build the prompt to be used for generating tests.
 
@@ -100,8 +100,8 @@ class UnitTestGenerator:
         """
         # Run coverage and build the prompt
         self.run_coverage()
-        self.prompt = self.build_prompt()
-
+        return self.failed_test_runs
+    
     def get_code_language(self, source_file_path):
         """
         Get the programming language based on the file extension of the provided source file path.
@@ -256,189 +256,6 @@ class UnitTestGenerator:
 
             return out_str.strip()
         return ""
-
-    def build_prompt(self) -> dict:
-        """
-        Builds a prompt using the provided information to be used for generating tests.
-
-        This method checks for the existence of failed test runs and then calls the PromptBuilder class to construct the prompt.
-        The prompt includes details such as the source file path, test file path, code coverage report, included files,
-        additional instructions, failed test runs, and the programming language being used.
-
-        Returns:
-            str: The generated prompt to be used for test generation.
-        """
-        # Check for existence of failed tests:
-        if not self.failed_test_runs:
-            failed_test_runs_value = ""
-        else:
-            failed_test_runs_value = ""
-            try:
-                for failed_test in self.failed_test_runs:
-                    failed_test_dict = failed_test.get("code", {})
-                    if not failed_test_dict:
-                        continue
-                    # dump dict to str
-                    code = json.dumps(failed_test_dict)
-                    error_message = failed_test.get("error_message", None)
-                    failed_test_runs_value += f"Failed Test:\n```\n{code}\n```\n"
-                    if error_message:
-                        failed_test_runs_value += (
-                            f"Error message for test above:\n{error_message}\n\n\n"
-                        )
-                    else:
-                        failed_test_runs_value += "\n\n"
-            except Exception as e:
-                self.logger.error(f"Error processing failed test runs: {e}")
-                failed_test_runs_value = ""
-        self.failed_test_runs = (
-            []
-        )  # Reset the failed test runs. we don't want a list which grows indefinitely, and will take all the prompt tokens
-
-        # Call PromptBuilder to build the prompt
-        self.prompt_builder = PromptBuilder(
-            source_file_path=self.source_file_path,
-            test_file_path=self.test_file_path,
-            code_coverage_report=self.code_coverage_report,
-            included_files=self.included_files,
-            additional_instructions=self.additional_instructions,
-            failed_test_runs=failed_test_runs_value,
-            language=self.language,
-            testing_framework=self.testing_framework,
-            project_root=self.project_root,
-        )
-
-        return self.prompt_builder.build_prompt()
-
-    def initial_test_suite_analysis(self):
-        """
-        Perform the initial analysis of the test suite structure.
-
-        This method iterates through a series of attempts to analyze the test suite structure by interacting with the AI model.
-        It constructs prompts based on specific files and calls to the AI model to gather information such as test headers indentation,
-        relevant line numbers for inserting new tests, and relevant line numbers for inserting imports.
-        The method handles multiple attempts to gather this information and raises exceptions if the analysis fails.
-
-        Raises:
-            Exception: If the test headers indentation cannot be analyzed successfully.
-            Exception: If the relevant line number to insert new tests cannot be determined.
-
-        Returns:
-            None
-        """
-        try:
-            test_headers_indentation = None
-            allowed_attempts = 3
-            counter_attempts = 0
-            while (
-                test_headers_indentation is None and counter_attempts < allowed_attempts
-            ):
-                prompt_headers_indentation = self.prompt_builder.build_prompt_custom(
-                    file="analyze_suite_test_headers_indentation"
-                )
-                response, prompt_token_count, response_token_count = (
-                    self.ai_caller.call_model(prompt=prompt_headers_indentation)
-                )
-                self.ai_caller.model = self.llm_model
-                self.total_input_token_count += prompt_token_count
-                self.total_output_token_count += response_token_count
-                tests_dict = load_yaml(response)
-                test_headers_indentation = tests_dict.get(
-                    "test_headers_indentation", None
-                )
-                counter_attempts += 1
-
-            if test_headers_indentation is None:
-                raise Exception("Failed to analyze the test headers indentation")
-
-            relevant_line_number_to_insert_tests_after = None
-            relevant_line_number_to_insert_imports_after = None
-            allowed_attempts = 3
-            counter_attempts = 0
-            while (
-                not relevant_line_number_to_insert_tests_after
-                and counter_attempts < allowed_attempts
-            ):
-                prompt_test_insert_line = self.prompt_builder.build_prompt_custom(
-                    file="analyze_suite_test_insert_line"
-                )
-                response, prompt_token_count, response_token_count = (
-                    self.ai_caller.call_model(prompt=prompt_test_insert_line)
-                )
-                self.ai_caller.model = self.llm_model
-                self.total_input_token_count += prompt_token_count
-                self.total_output_token_count += response_token_count
-                tests_dict = load_yaml(response)
-                relevant_line_number_to_insert_tests_after = tests_dict.get(
-                    "relevant_line_number_to_insert_tests_after", None
-                )
-                relevant_line_number_to_insert_imports_after = tests_dict.get(
-                    "relevant_line_number_to_insert_imports_after", None
-                )
-                self.testing_framework = tests_dict.get("testing_framework", "Unknown")
-                counter_attempts += 1
-
-            if not relevant_line_number_to_insert_tests_after:
-                raise Exception(
-                    "Failed to analyze the relevant line number to insert new tests"
-                )
-
-            self.test_headers_indentation = test_headers_indentation
-            self.relevant_line_number_to_insert_tests_after = (
-                relevant_line_number_to_insert_tests_after
-            )
-            self.relevant_line_number_to_insert_imports_after = (
-                relevant_line_number_to_insert_imports_after
-            )
-        except Exception as e:
-            self.logger.error(f"Error during initial test suite analysis: {e}")
-            raise Exception("Error during initial test suite analysis")
-
-    def generate_tests(self):
-        """
-        Generate tests using the AI model based on the constructed prompt.
-
-        This method generates tests by calling the AI model with the constructed prompt.
-        It handles both dry run and actual test generation scenarios. In a dry run, it returns canned test responses.
-        In the actual run, it calls the AI model with the prompt and processes the response to extract test
-        information such as test tags, test code, test name, and test behavior.
-
-        Parameters:
-            max_tokens (int, optional): The maximum number of tokens to use for generating tests. Defaults to 4096.
-
-        Returns:
-            dict: A dictionary containing the generated tests with test tags, test code, test name, and test behavior. If an error occurs during test generation, an empty dictionary is returned.
-
-        Raises:
-            Exception: If there is an error during test generation, such as a parsing error while processing the AI model response.
-        """
-        self.prompt = self.build_prompt()
-        response, prompt_token_count, response_token_count =  self.ai_caller.call_model(prompt=self.prompt)
-
-        self.total_input_token_count += prompt_token_count
-        self.total_output_token_count += response_token_count
-        try:
-            tests_dict = load_yaml(
-                response,
-                keys_fix_yaml=["test_tags", "test_code", "test_name", "test_behavior"],
-            )
-            if tests_dict is None:
-                return {}
-        except Exception as e:
-            self.logger.error(f"Error during test generation: {e}")
-            # Record the error as a failed test attempt
-            fail_details = {
-                "status": "FAIL",
-                "reason": f"Parsing error: {e}",
-                "exit_code": None,  # No exit code as it's a parsing issue
-                "stderr": str(e),
-                "stdout": "",  # No output expected from a parsing error
-                "test": response,  # Use the response that led to the error
-            }
-            # self.failed_test_runs.append(fail_details)
-            tests_dict = []
-
-        return tests_dict
 
     def validate_test(self, generated_test: dict, num_attempts=1):
         """
