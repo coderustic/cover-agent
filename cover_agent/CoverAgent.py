@@ -165,7 +165,7 @@ class CoverAgent:
                 test_result = self.test_validator.validate_test(
                     generated_test, self.args.run_tests_multiple_times
                 )
-                test_result["prompt"] = self.test_gen.prompt # get the prompt used to generate the test so that it is stored in the database
+                test_result["prompt"] = self.test_gen.prompt["user"] # get the prompt used to generate the test so that it is stored in the database
                 test_results_list.append(test_result)
 
                 # Insert the test result into the database
