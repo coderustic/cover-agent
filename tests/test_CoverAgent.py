@@ -181,7 +181,7 @@ class TestCoverAgent:
     @patch("cover_agent.CoverAgent.UnitTestGenerator")
     @patch("cover_agent.CoverAgent.UnitTestValidator")
     @patch("cover_agent.CoverAgent.UnitTestDB")
-    def test_run_max_iterations_strict_coverage(self, mock_test_db, mock_unit_test_generator, mock_unit_test_validator, mock_sys_exit):
+    def test_run_max_iterations_strict_coverage(self, mock_test_db, mock_unit_test_validator, mock_unit_test_generator, mock_sys_exit):
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_source_file:
             with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as temp_test_file:
                 args = argparse.Namespace(
