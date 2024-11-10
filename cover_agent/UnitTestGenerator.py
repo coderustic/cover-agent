@@ -54,7 +54,6 @@ class UnitTestGenerator:
             None
         """
         # Class variables
-        self.test_headers_indentation = None
         self.project_root = project_root
         self.source_file_path = source_file_path
         self.test_file_path = test_file_path
