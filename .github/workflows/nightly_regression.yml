@@ -5,7 +5,7 @@ on:
   # Schedule the workflow to run nightly at midnight
   pull_request:
     branches:
-      - main
+      - run-integration
   schedule:
     - cron: '0 0 * * *'
   # Allow manual triggering of the workflow
