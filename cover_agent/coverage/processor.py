@@ -26,6 +26,7 @@ class CoverageData:
         missed (int)       : The number of lines that are not covered by tests.
         coverage (float)   : The coverage percentage of the file or class.
     """
+    is_target_file: bool
     covered_lines: List[int]
     covered: int
     missed_lines: List[int]
@@ -50,6 +51,19 @@ class CoverageReport:
     """
     total_coverage: float
     file_coverage: Dict[str, CoverageData]
+
+    def filter_to_target_coverage(self) -> "CoverageReport":
+        """
+        Returns a new CoverageReport object with only the target file's coverage data.
+        """
+        target_coverage = {
+            file: coverage
+            for file, coverage in self.file_coverage.items()
+            if coverage.is_target_file
+        }
+        total_lines = sum(len(cov.covered_lines) + len(cov.missed_lines) for cov in target_coverage.values())
+        total_coverage = (sum(len(cov.covered_lines) for cov in target_coverage.values()) / total_lines) if total_lines > 0 else 0.0
+        return CoverageReport(total_coverage, target_coverage)
 
 class CoverageProcessor(ABC):
     """
@@ -102,14 +116,12 @@ class CoverageProcessor(ABC):
         Processes the coverage report and returns the coverage data.
         """
         self._is_coverage_valid(time_of_test_command=time_of_test_command)
-        coverage = self.parse_coverage_report()
-        report = CoverageReport(0.0, coverage)
-        if coverage:
-            total_covered = sum(cov.covered for cov in coverage.values())
-            total_missed = sum(cov.missed for cov in coverage.values())
-            total_lines = total_covered + total_missed
-            report.total_coverage = (float(total_covered) / float(total_lines)) if total_lines > 0 else 0.0
-        return report
+        coverage_data = self.parse_coverage_report()
+        total_covered = sum(cov.covered for cov in coverage_data.values())
+        total_missed = sum(cov.missed for cov in coverage_data.values())
+        total_lines = total_covered + total_missed
+        total_coverage = (total_covered / total_lines) if total_lines > 0 else 0.0
+        return CoverageReport(total_coverage, coverage_data)
 
     def _is_coverage_valid(
         self, time_of_test_command: int
@@ -160,13 +172,25 @@ class CoberturaProcessor(CoverageProcessor):
         tree = ET.parse(self.file_path)
         root = tree.getroot()
         coverage = {}
-        for cls in root.findall(".//class"):
-            cls_filename = cls.get("filename")
-            if cls_filename:
-                if cls_filename not in coverage:
-                    coverage[cls_filename] = self._parse_coverage_data_for_class(cls)
-                else:
-                    coverage[cls_filename] = self._merge_coverage_data(coverage[cls_filename], self._parse_coverage_data_for_class(cls))
+        for package in root.findall(".//package"):
+            # Package name could be '.' if the class is in the default package
+            # Eg: <package name="." line-rate="0.8143" branch-rate="0" complexity="0">
+            # In such cases, lets use default as the package name.
+            package_name = package.get("name", ".")
+            for cls in root.findall(".//class"):
+                # In languages where Class is not a first class citizen,
+                # the class name is set to the file name as you can see
+                # in the below example from the Cobertura XML report.
+                # Usually this could be your util files. So we are good
+                # to consier name as the key for the CoverageData.
+                # Eg: <class name="utils.py" filename="utils.py" complexity="0" line-rate="0.8794" branch-rate="0">
+                class_name = cls.get("filename")
+                fully_qualified_name = f"{package_name}.{class_name}".strip('.')
+                if fully_qualified_name:
+                    if fully_qualified_name not in coverage:
+                        coverage[fully_qualified_name] = self._parse_coverage_data_for_class(cls)
+                    else:
+                        coverage[fully_qualified_name] = self._merge_coverage_data(coverage[class_name], self._parse_coverage_data_for_class(cls))
         return coverage
 
     def _merge_coverage_data(self, existing_coverage: CoverageData, new_coverage: CoverageData) -> CoverageData:
@@ -176,7 +200,7 @@ class CoberturaProcessor(CoverageProcessor):
         missed = existing_coverage.missed + new_coverage.missed
         total_lines = covered + missed
         coverage_percentage = (float(covered) / total_lines) if total_lines > 0 else 0.0
-        return CoverageData(covered_lines, covered, missed_lines, missed, coverage_percentage)
+        return CoverageData(new_coverage.is_target_file, covered_lines, covered, missed_lines, missed, coverage_percentage)
 
     def _parse_coverage_data_for_class(self, cls) -> CoverageData:
         lines_covered, lines_missed = [], []
@@ -188,8 +212,11 @@ class CoberturaProcessor(CoverageProcessor):
             else:
                 lines_missed.append(line_number)
         total_lines = len(lines_covered) + len(lines_missed)
-        coverage_percentage = (float(len(lines_covered)) / total_lines) if total_lines > 0 else 0.0
-        return CoverageData(lines_covered, len(lines_covered), lines_missed, len(lines_missed), coverage_percentage)
+        coverage = (len(lines_covered) / total_lines) if total_lines > 0 else 0.0
+        is_target = False
+        if self.src_file_path.endswith(cls.get("filename")):
+            is_target = True
+        return CoverageData(is_target, lines_covered, len(lines_covered), lines_missed, len(lines_missed), coverage)
 
 class LcovProcessor(CoverageProcessor):
     """
@@ -218,7 +245,10 @@ class LcovProcessor(CoverageProcessor):
                                 break
                         total_lines = len(lines_covered) + len(lines_missed)
                         coverage_percentage = (float(len(lines_covered)) / total_lines) if total_lines > 0 else 0.0
-                        coverage[filename] = CoverageData(lines_covered, len(lines_covered), lines_missed, len(lines_missed), coverage_percentage)
+                        is_target = False
+                        if filename == self.src_file_path:
+                            is_target = True
+                        coverage[filename] = CoverageData(is_target, lines_covered, len(lines_covered), lines_missed, len(lines_missed), coverage_percentage)
         except (FileNotFoundError, IOError) as e:
             self.logger.error(f"Error reading file {self.file_path}: {e}")
             raise
@@ -249,16 +279,11 @@ class JacocoProcessor(CoverageProcessor):
         file_extension = self._get_file_extension(self.file_path)
 
         if file_extension == 'xml':
-            lines_missed, lines_covered = self._parse_jacoco_xml(class_name=class_name)
-            missed, covered = len(lines_missed), len(lines_covered)
+            return self._parse_jacoco_xml(class_name=class_name)
         elif file_extension == 'csv':
-            lines_missed, lines_covered = [], []
-            missed, covered = self._parse_jacoco_csv(package_name=package_name, class_name=class_name)
+            return self._parse_jacoco_csv(package_name=package_name, class_name=class_name)
         else:
             raise ValueError(f"Unsupported JaCoCo code coverage report format: {file_extension}")
-        total_lines = missed + covered
-        coverage_percentage = (float(covered) / total_lines) if total_lines > 0 else 0.0
-        coverage[class_name] = CoverageData(covered_lines=lines_covered, covered=covered, missed_lines=lines_missed, missed=missed, coverage=coverage_percentage)
         return coverage
     
     def _get_file_extension(self, filename: str) -> str | None:
@@ -326,32 +351,54 @@ class JacocoProcessor(CoverageProcessor):
                 root.find(f".//sourcefile[@name='{class_name}.kt']")
         )
 
-        if sourcefile is None:
-            return [], []
+        # if sourcefile is None:
+        #     return [], []
+        coverage = {}
+        for package in root.findall(".//package"):
+            package_name = package.get("name", "")
+            for cls in package.findall(".//class"):
+                class_name = cls.get("sourcefilename", "")
+                fully_qualified_name = f"{package_name}.{class_name}".replace("/", ".")
+                lines_missed, lines_covered = [], []
+                for line in sourcefile.findall('line'):
+                    if line.attrib.get('mi') == '0':
+                        covered += [int(line.attrib.get('nr', 0))]
+                    else :
+                        missed += [int(line.attrib.get('nr', 0))]
+                missed, covered = len(lines_missed), len(lines_covered)
+                total_lines = missed + covered
+                coverage_percentage = (float(covered) / total_lines) if total_lines > 0 else 0.0
+                is_target = False
+                src_path = cls.get("name", "")
+                if f"{src_path}/{class_name}" == self.src_file_path:
+                    is_target = True
+                # TODO: Add support for identifying which lines are covered and missed
+                coverage[fully_qualified_name] = CoverageData(is_target, [], covered, [], missed, coverage_percentage)
+        return coverage
 
-        missed, covered = [], []
-        for line in sourcefile.findall('line'):
-            if line.attrib.get('mi') == '0':
-                covered += [int(line.attrib.get('nr', 0))]
-            else :
-                missed += [int(line.attrib.get('nr', 0))]
-
-        return missed, covered
     def _parse_jacoco_csv(self, package_name, class_name) -> Dict[str, CoverageData]:
+        coverage = {}
         with open(self.file_path, "r") as file:
             reader = csv.DictReader(file)
             missed, covered = 0, 0
             for row in reader:
                 if row["PACKAGE"] == package_name and row["CLASS"] == class_name:
                     try:
-                        missed = int(row["LINE_MISSED"])
-                        covered = int(row["LINE_COVERED"])
+                        group = row.get("GROUP", "").strip()
+                        fully_qualified_name = f"{group}.{package_name}.{class_name}".strip('.')
+                        total = covered + missed
+                        coverage_percentage = (covered / total) if total > 0 else 0.0
+                        is_target = False
+                        src_path = package_name.replace(".", "/")
+                        if f"{src_path}/{class_name}" == self.src_file_path:
+                            is_target = True
+                            coverage[fully_qualified_name] = CoverageData(is_target, [], covered, [], missed, coverage_percentage)
                         break
                     except KeyError as e:
                         self.logger.error(f"Missing expected column in CSV: {e}")
                         raise
 
-        return missed, covered
+        return coverage
 
 class DiffCoverageProcessor(CoverageProcessor):
     """
@@ -413,35 +460,9 @@ class DiffCoverageProcessor(CoverageProcessor):
             violation_lines = []
             coverage_percentage = 0.0
 
-        coverage[self.file_path] = CoverageData(covered_lines=covered_lines, covered=len(covered_lines), missed_lines=violation_lines,missed=len(violation_lines), coverage=coverage_percentage)
+        # Consider every file as target file during diff coverage
+        coverage[self.file_path] = CoverageData(is_target_file=True, covered_lines=covered_lines, covered=len(covered_lines), missed_lines=violation_lines,missed=len(violation_lines), coverage=coverage_percentage)
         return coverage
-
-class CoverageReportFilter:
-    """
-    A class to filter coverage reports based on
-    file patterns. This class abstracts the logic
-    for filtering coverage reports based on file
-    patterns.
-    """
-    def filter_report(self, report: CoverageReport, file_pattern: str) -> CoverageReport:
-        """
-        Filters the coverage report based on the specified file pattern.
-
-        Args:
-            report (CoverageReport): The coverage report to filter.
-            file_pattern (str): The file pattern to filter by.
-
-        Returns:
-            CoverageReport: The filtered coverage report.
-        """
-        filtered_coverage = {
-            file: coverage 
-            for file, coverage in report.file_coverage.items()
-            if file_pattern in file
-        }
-        total_lines = sum(len(cov.covered_lines) + len(cov.missed_lines) for cov in filtered_coverage.values())
-        total_coverage = (sum(len(cov.covered_lines) for cov in filtered_coverage.values()) / total_lines) if total_lines > 0 else 0.0
-        return CoverageReport(total_coverage = total_coverage, file_coverage=filtered_coverage)
 
 class CoverageProcessorFactory:
     """Factory for creating coverage processors based on tool type."""
@@ -497,8 +518,5 @@ def process_coverage(
     if is_global_coverage_enabled:
         return report
 
-    # Apply filtering if needed
-    if file_pattern:
-        filter = CoverageReportFilter()
-        report = filter.filter_report(report, file_pattern)
-    return report
+    # If global coverage is disabled, filter to target coverage
+    return report.filter_to_target_coverage()
